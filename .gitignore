@@ -1,0 +1,21 @@
+# Node.js
+node_modules/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# IDE
+.vscode/
+.idea/
+
+# Artifacts
+dist/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+config/local.json
+config/*.local.json

@@ -1,0 +1,16 @@
+{
+  "name": "@breign/discord-gateway",
+  "version": "1.0.0",
+  "description": "A gateway to port Breign platform to Discord.",
+  "license": "UNLICENSED",
+  "author": "Kevin 'Nakasar' Thizy <nakasar@outlook.fr>",
+  "type": "commonjs",
+  "main": "dist/start.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "devDependencies": {
+    "@tsconfig/node24": "^24.0.1",
+    "typescript": "^5.9.3"
+  }
+}
