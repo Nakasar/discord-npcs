@@ -45,6 +45,7 @@ export type Session = {
 	createdAt: Date;
 	createdBy: User['id'];
 	channelId: Channel['id'];
+	generating: boolean;
 }
 const sessions: Session[] = [];
 
@@ -54,6 +55,7 @@ async function createSession(createdBy: User['id'], channelId: Channel['id']): P
 		createdAt: new Date(),
 		createdBy,
 		channelId,
+		generating: false,
 	};
 	sessions.push(session);
 
@@ -68,6 +70,13 @@ async function deleteSession(id: Session['id']): Promise<void> {
 	const index = sessions.findIndex((session) => session.id === id);
 	if (index !== -1) {
 		sessions.splice(index, 1);
+	}
+}
+
+async function markSessionGenerating(id: Session['id'], generating: boolean): Promise<void> {
+	const session = sessions.find((s) => s.id === id);
+	if (session) {
+		session.generating = generating;
 	}
 }
 
@@ -94,7 +103,21 @@ client.on(Events.MessageCreate, async (message) => {
 			return;
 		}
 
+		if (session.generating) {
+			return;
+		}
+
 		await message.channel.send(`Acknowledged your message in session ${session.id}`);
+
+		await markSessionGenerating(session.id, true);
+
+		await message.channel.sendTyping();
+
+		setTimeout(async () => {
+			await message.channel.send(`This is a test response from the session ${session.id} to your message: "${message.content}"`);
+
+			await markSessionGenerating(session.id, false);
+		}, 5000);
 	}
 });
 

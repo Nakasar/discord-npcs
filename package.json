@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "config": "^4.1.1",
-    "discord.js": "^14.24.2"
+    "discord.js": "^14.24.2",
+    "pino": "^10.1.0"
   }
 }

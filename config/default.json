@@ -1,4 +1,9 @@
  {
+    "server": {
+        "logging": {
+            "level": "verbose"
+        }
+    },
     "services": {
         "discord": {
             "token": "",
