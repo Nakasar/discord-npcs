@@ -1,11 +1,13 @@
-import { Channel, Client, EmbedBuilder, Events, GatewayIntentBits, MessageType, REST, Routes, SlashCommandBuilder, User } from 'discord.js';
+import { Channel, Client, EmbedBuilder, Events, GatewayIntentBits, REST, Routes, SlashCommandBuilder, User } from 'discord.js';
 import config from 'config';
+import { logger } from './logger';
 
 const client = new Client({
 	intents: [
 		GatewayIntentBits.Guilds,
 		GatewayIntentBits.GuildMessages,
 		GatewayIntentBits.MessageContent,
+		GatewayIntentBits.GuildMembers,
 	],
 });
 const rest = new REST().setToken(config.get('services.discord.token'));
@@ -46,6 +48,7 @@ export type Session = {
 	createdBy: User['id'];
 	channelId: Channel['id'];
 	generating: boolean;
+	conversationId?: string;
 }
 const sessions: Session[] = [];
 
@@ -80,6 +83,13 @@ async function markSessionGenerating(id: Session['id'], generating: boolean): Pr
 	}
 }
 
+async function setSessionConversationId(id: Session['id'], conversationId: string): Promise<void> {
+	const session = sessions.find((s) => s.id === id);
+	if (session) {
+		session.conversationId = conversationId;
+	}
+}
+
 
 /*
  * Events handlers
@@ -91,7 +101,21 @@ client.once(Events.ClientReady, (readyClient) => {
 client.on(Events.MessageCreate, async (message) => {
 	if (message.author.bot) return;
 
-	if (message.content === 'refreshCommands') {
+	if (message.content === 'ping') {
+		logger.debug(`Received ping from user: ${message.author.id}`);
+
+		logger.debug({
+			id: message.author.id,
+			member: message.member?.displayName,
+		});
+	} else if (message.content === 'refreshCommands') {
+		logger.debug(`Received refreshCommands request from user: ${message.author.id}`);
+
+		if (['186208105502081025'].includes(message.author.id) === false) {
+			logger.debug(`User ${message.author.id} is not authorized to refresh commands.`);
+			return;
+		}
+
 		await refreshGlobalCommands();
 		if (message.guild) {
 			await refreshGuildCommands(message.guild.id);
@@ -103,25 +127,100 @@ client.on(Events.MessageCreate, async (message) => {
 			return;
 		}
 
+		logger.debug(`Received message in session ${session.id} by user: ${message.author.id}.`);
+
 		if (session.generating) {
+			logger.debug(`Session ${session.id} is already generating a response. Ignoring message.`);
 			return;
 		}
 
-		await message.channel.send(`Acknowledged your message in session ${session.id}`);
-
 		await markSessionGenerating(session.id, true);
+
+		const agentId = '4SCC_h5il1';
 
 		await message.channel.sendTyping();
 
-		setTimeout(async () => {
-			await message.channel.send(`This is a test response from the session ${session.id} to your message: "${message.content}"`);
+		const messageContent = message.content;
+		let name: string | undefined;
+		let content: string = messageContent;
+
+		let formatted: string;
+		if (messageContent.toLowerCase().startsWith('[[contexte]]')) {
+			formatted = content;
+		} else {
+			const match = messageContent.match(/^\+([^:]+):\s*(.*)$/);
+			if (match) {
+				name = match[1].trim();
+				content = match[2].trim();
+			}
+			if (name) {
+				formatted = `- **${name} :** ${content}`;
+			} else {
+				formatted = `- **${message.member?.displayName ?? message.author.displayName} :** ${content}`;
+			}
+		}
+
+		if (session.conversationId) {
+			const response = await fetch(`${config.get('services.breign.endpoint')}/conversations/${session.conversationId}/prompts`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'X-API-KEY': config.get('services.breign.apiKey'),
+				},
+				body: JSON.stringify({
+					message: formatted,
+				}),
+			});
+
+			if (!response.ok) {
+				logger.error(`Failed to send prompt to conversation ${session.conversationId}: ${response.status} ${response.statusText}`);
+
+				await markSessionGenerating(session.id, false);
+				await message.channel.send(`Une erreur est survenue.`);
+
+				return;
+			}
+
+			const responseData = await response.json() as { conversationId: string; text: string };
+
+			await message.channel.send(responseData.text);
 
 			await markSessionGenerating(session.id, false);
-		}, 5000);
+		} else {
+			const response = await fetch(`${config.get('services.breign.endpoint')}/agents/${agentId}/prompts`, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'X-API-KEY': config.get('services.breign.apiKey'),
+				},
+				body: JSON.stringify({
+					lang: 'fr',
+					message: formatted,
+				}),
+			});
+
+			if (!response.ok) {
+				logger.error(`Failed to send prompt to conversation ${session.conversationId}: ${response.status} ${response.statusText}`);
+
+				await markSessionGenerating(session.id, false);
+				await message.channel.send(`Une erreur est survenue.`);
+
+				return;
+			}
+
+			const responseData = await response.json() as { conversationId: string; text: string };
+			await setSessionConversationId(session.id, responseData.conversationId);
+
+			await message.channel.send(responseData.text);
+
+			await markSessionGenerating(session.id, false);
+		}
 	}
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
+	logger.debug(`Received interaction: ${interaction.id} of type ${interaction.type}`);
+
 	if (!interaction.isChatInputCommand()) return;
 
 	if (interaction.commandName === 'ping') {
@@ -129,6 +228,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
 	} else if (interaction.commandName === 'start') {
 		if (!interaction.channel) {
 			await interaction.reply({ content: 'This command can only be used in a channel!', ephemeral: true });
+			return;
+		}
+
+		if (['186208105502081025', '288041001329754112'].includes(interaction.user.id) === false) {
+			logger.debug(`User ${interaction.user.id} is not authorized to start a session.`);
 			return;
 		}
 
@@ -141,13 +245,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
 		await createSession(interaction.user.id, interaction.channel.id);
 
-		await interaction.reply('Session started!');
+		await interaction.reply('Démarrage de la session. Ecrivez le contexte de votre conversation et on y va !');
 	} else if (interaction.commandName === 'stop') {
 		if (!interaction.channel) {
 			await interaction.reply({ content: 'This command can only be used in a channel!', ephemeral: true });
 			return;
 		}
 
+		if (['186208105502081025', '288041001329754112'].includes(interaction.user.id) === false) {
+			logger.debug(`User ${interaction.user.id} is not authorized to stop a session.`);
+			return;
+		}
 
 		const session = await getSessionForChannel(interaction.channel.id);
 		if (!session) {

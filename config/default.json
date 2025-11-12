@@ -1,7 +1,7 @@
  {
     "server": {
         "logging": {
-            "level": "verbose"
+            "level": "debug"
         }
     },
     "services": {
