@@ -4,6 +4,10 @@
             "token": "",
             "applicationId": "",
             "publicKey": ""
+        },
+        "breign": {
+            "endpoint": "https://api.breign.eu",
+            "apiKey": ""
         }
     }
  }
