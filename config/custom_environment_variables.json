@@ -1,0 +1,9 @@
+{
+    "services": {
+        "discord": {
+            "token": "SERVICES__DISCORD__TOKEN",
+            "applicationId": "SERVICES__DISCORD__APPLICATIONID",
+            "publicKey": "SERVICES__DISCORD__PUBLICKEY"
+        }
+    }
+}

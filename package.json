@@ -7,10 +7,19 @@
   "type": "commonjs",
   "main": "dist/start.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "watch": "nodemon",
+    "build": "tsc"
   },
   "devDependencies": {
     "@tsconfig/node24": "^24.0.1",
+    "@types/config": "^3.3.5",
+    "@types/node": "^24.10.1",
+    "nodemon": "^3.1.11",
+    "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "config": "^4.1.1",
+    "discord.js": "^14.24.2"
   }
 }
