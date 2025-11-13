@@ -1,3 +1,5 @@
+import config from "config";
+
 export type User = {
     id: string;
     username: string;
@@ -10,6 +12,11 @@ export type Agent = {
     id: string;
     accessibleByUsers: User['id'][];
     name?: string;
+    app?: {
+        instanceId: string;
+        id: string;
+        secret: string;
+    }
 };
 
 const users: User[] = [
@@ -41,7 +48,12 @@ const agents: Agent[] = [
         id: 'TxDelY5_cW',
         name: 'Jean Monnet', 
         accessibleByUsers: ['nakasar'],
-    }
+        app: {
+            instanceId: config.get('tmp.appInstance'),
+            id: config.get('tmp.appId'),
+            secret: config.get('tmp.appSecret'),
+        },
+    },
 ];
 
 export async function getUserByDiscordId(discordId: string): Promise<User | undefined> {

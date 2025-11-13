@@ -12,7 +12,13 @@
         },
         "breign": {
             "endpoint": "https://api.breign.eu",
+            "socket": "wss://ws.breign.eu",
             "apiKey": ""
         }
+    },
+    "tmp": {
+        "appId": "",
+        "appSecret": "",
+        "appInstance": ""
     }
  }

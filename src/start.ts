@@ -1,9 +1,11 @@
-import { Client, EmbedBuilder, Events, GatewayIntentBits, REST, Routes, SlashCommandBuilder } from 'discord.js';
+import { ChannelType, Client, EmbedBuilder, Events, GatewayIntentBits, MessageFlags, REST, Routes, SlashCommandBuilder } from 'discord.js';
 import config from 'config';
 import { logger } from './logger';
 import { getSessionForChannel, markSessionGenerating, setSessionContext, setSessionConversationId } from './db/sessions';
 import { startSessionCommand } from './commands/start-session.command';
 import { stopSessionCommand } from './commands/stop-session.command';
+import { joinVoiceChannel } from '@discordjs/voice';
+import { Instance } from './db/voice';
 
 const client = new Client({
 	intents: [
@@ -21,24 +23,58 @@ const rest = new REST().setToken(config.get('services.discord.token'));
 const commands = [
 	new SlashCommandBuilder().setName('ping').setDescription('Replies with Pong!').toJSON(),
 	new SlashCommandBuilder()
-			.setName('start')
-			.setNameLocalization('fr', 'démarrer')
-			.setDescription('Create a new session in this channel')
-			.setDescriptionLocalization('fr', 'Crée une nouvelle session dans ce canal')
-			.addStringOption(option => option
-				.setName('characters')
-				.setNameLocalization('fr', 'personnages')
-				.setDescription('List of coma-separated character names or IDs')
-				.setDescriptionLocalization('fr', 'Liste des noms ou ID de personnages séparés par des virgules')
-				.setRequired(false)
-			)
-			.toJSON(),
+		.setName('start')
+		.setNameLocalization('fr', 'démarrer')
+		.setDescription('Create a new session in this channel')
+		.setDescriptionLocalization('fr', 'Crée une nouvelle session dans ce canal')
+		.addStringOption(option => option
+			.setName('characters')
+			.setNameLocalization('fr', 'personnages')
+			.setDescription('List of coma-separated character names or IDs')
+			.setDescriptionLocalization('fr', 'Liste des noms ou ID de personnages séparés par des virgules')
+			.setRequired(false)
+		)
+		.toJSON(),
 	new SlashCommandBuilder()
-			.setName('stop')
-			.setNameLocalization('fr', 'arrêter')
-			.setDescription('Stop the session in this channel')
-			.setDescriptionLocalization('fr', 'Arrête la session dans ce canal')
-			.toJSON(),
+		.setName('stop')
+		.setNameLocalization('fr', 'arrêter')
+		.setDescription('Stop the session in this channel')
+		.setDescriptionLocalization('fr', 'Arrête la session dans ce canal')
+		.toJSON(),
+	new SlashCommandBuilder()
+		.setName('voice')
+		.addSubcommand((subcommand) =>
+			subcommand
+				.setName('connect')
+				.addChannelOption((option) =>
+					option
+						.setName('voice-channel')
+						.setNameLocalizations({
+							fr: 'canal-vocal',
+						})
+						.setDescription("Le canal vocal où invoquer la voix.")
+						.addChannelTypes(ChannelType.GuildVoice)
+						.setRequired(true),
+				)
+				.setDescription('Ajouter le stream audio des conversations.'),
+		)
+		.addSubcommand((subcommand) =>
+			subcommand.setName('leave').setDescription("Quitter le stream audio"),
+		)
+		.addSubcommand((subcommand) =>
+			subcommand
+				.setName('say')
+				.addStringOption((option) =>
+					option
+						.setName('text')
+						.setNameLocalizations({
+							fr: 'texte',
+						})
+						.setDescription('Le texte à dire.')
+						.setRequired(true),
+				)
+				.setDescription("Faire parler les personnages."),
+		)
 ];
 
 async function refreshGlobalCommands() {
@@ -48,8 +84,6 @@ async function refreshGlobalCommands() {
 async function refreshGuildCommands(guildId: string) {
 	await rest.put(Routes.applicationGuildCommands(config.get('services.discord.applicationId'), guildId), { body: commands });
 }
-
-
 
 /*
  * Events handlers
@@ -96,7 +130,7 @@ client.on(Events.MessageCreate, async (message) => {
 
 		if (!session.context) {
 			logger.debug(`Adding first message as context to session.`);
-			
+
 			await setSessionContext(session.id, message.content);
 
 			if (session.topicMessageId) {
@@ -121,7 +155,7 @@ client.on(Events.MessageCreate, async (message) => {
 
 		if (session.characters?.length > 1) {
 			logger.debug(`Session ${session.id} has multiple characters defined. Ignoring message.`);
-			
+
 			await message.channel.send(`Plusieurs personnages sont définis pour cette session. Pour l'instant, seule une interaction avec un personnage unique est supportée pour le moment.`);
 			return;
 		}
@@ -224,6 +258,82 @@ client.on(Events.InteractionCreate, async (interaction) => {
 		await startSessionCommand(interaction);
 	} else if (interaction.commandName === 'stop') {
 		await stopSessionCommand(interaction);
+	} else if (interaction.commandName === 'voice') {
+		const subCommand = interaction.options.getSubcommand();
+		if (subCommand === 'connect') {
+			const session = await getSessionForChannel(interaction.channelId);
+			if (!session) {
+				await interaction.reply({
+					flags: [MessageFlags.Ephemeral],
+					embeds: [
+						new EmbedBuilder()
+							.setDescription("Aucune session n'est active dans ce canal. Veuillez démarrer une session avant de vous connecter à un canal vocal."),
+					],
+				});
+				return;
+			}
+			if (!session.characters || session.characters.length === 0) {
+				await interaction.reply({
+					flags: [MessageFlags.Ephemeral],
+					embeds: [
+						new EmbedBuilder()
+							.setDescription("Aucun personnage n'est défini pour cette session. Veuillez démarrer une nouvelle session avec des personnages valides avant de vous connecter à un canal vocal."),
+					],
+				});
+				return;
+			}
+
+			if (!interaction.guildId) {
+				await interaction.reply({
+					flags: [MessageFlags.Ephemeral],
+					embeds: [
+						new EmbedBuilder()
+							.setDescription("Cette commande ne peut être utilisée que dans un serveur."),
+					],
+				});
+				return;
+			}
+
+			const channel = interaction.options.getChannel('voice-channel', true, [
+				ChannelType.GuildVoice,
+			]);
+
+			if (!channel || channel.type !== ChannelType.GuildVoice || !channel.guild || channel.guildId !== interaction.guildId) {
+				await interaction.reply({
+					flags: [MessageFlags.Ephemeral],
+					embeds: [
+						new EmbedBuilder()
+							.setDescription("Le canal ciblé ne semble pas être un canal vocal accessible sur ce serveur."),
+					],
+				});
+				return;
+			}
+
+			const connection = joinVoiceChannel({
+				channelId: channel.id,
+				guildId: interaction.guildId,
+				adapterCreator: channel.guild.voiceAdapterCreator,
+			});
+
+			const instance = new Instance(
+				config.get('tmp.appId'),
+				config.get('tmp.appSecret'),
+				'',
+				channel.id,
+			);
+			connection.subscribe(instance.player);
+
+			await instance.connect();
+
+			await interaction.reply({
+				flags: [MessageFlags.Ephemeral],
+				embeds: [
+					new EmbedBuilder()
+						.setDescription(`Connecté au canal vocal **${channel.name}** et prêt à interagir.`),
+				],
+			});
+		} else if (subCommand === 'leave') {
+		}
 	}
 });
 
