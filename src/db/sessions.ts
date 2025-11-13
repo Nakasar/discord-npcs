@@ -1,4 +1,5 @@
-import { Channel, User } from "discord.js";
+import { Channel, Message, User } from "discord.js";
+import { Agent } from "./users";
 
 export type Session = {
     id: string;
@@ -8,17 +9,21 @@ export type Session = {
     generating: boolean;
     conversationId?: string;
     context?: string;
+    characters?: Agent['id'][];
+    topicMessageId?: Message['id'];
 };
 
 const sessions: Session[] = [];
 
-export async function createSession(createdBy: User['id'], channelId: Channel['id']): Promise<Session> {
+export async function createSession(createdBy: User['id'], channelId: Channel['id'], { characters, topicMessageId }: { characters?: Agent['id'][]; topicMessageId?: Message['id'] } = {}): Promise<Session> {
     const session: Session = {
         id: crypto.randomUUID(),
         createdAt: new Date(),
         createdBy,
         channelId,
         generating: false,
+        characters,
+        topicMessageId,
     };
     sessions.push(session);
 

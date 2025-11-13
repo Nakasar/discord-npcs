@@ -1,7 +1,9 @@
 import { Client, EmbedBuilder, Events, GatewayIntentBits, REST, Routes, SlashCommandBuilder } from 'discord.js';
 import config from 'config';
 import { logger } from './logger';
-import { createSession, deleteSession, getSessionForChannel, markSessionGenerating, setSessionContext, setSessionConversationId } from './db';
+import { getSessionForChannel, markSessionGenerating, setSessionContext, setSessionConversationId } from './db/sessions';
+import { startSessionCommand } from './commands/start-session.command';
+import { stopSessionCommand } from './commands/stop-session.command';
 
 const client = new Client({
 	intents: [
@@ -23,6 +25,13 @@ const commands = [
 			.setNameLocalization('fr', 'démarrer')
 			.setDescription('Create a new session in this channel')
 			.setDescriptionLocalization('fr', 'Crée une nouvelle session dans ce canal')
+			.addStringOption(option => option
+				.setName('characters')
+				.setNameLocalization('fr', 'personnages')
+				.setDescription('List of coma-separated character names or IDs')
+				.setDescriptionLocalization('fr', 'Liste des noms ou ID de personnages séparés par des virgules')
+				.setRequired(false)
+			)
 			.toJSON(),
 	new SlashCommandBuilder()
 			.setName('stop')
@@ -90,14 +99,36 @@ client.on(Events.MessageCreate, async (message) => {
 			
 			await setSessionContext(session.id, message.content);
 
+			if (session.topicMessageId) {
+				const topicMessage = await message.channel.messages.fetch(session.topicMessageId);
+				if (topicMessage) {
+					const edited = topicMessage.content.replace('# Contexte', `# Contexte\n${message.content}\n\n`);
+					await topicMessage.edit(edited);
+				}
+			}
+
 			await message.channel.send('✅ Le contexte est initialisé pour cette session. Ouverture du RP !');
 
 			return;
 		}
 
+		if (!session.characters || session.characters.length === 0) {
+			logger.debug(`Session ${session.id} has no characters defined. Ignoring message.`);
+
+			await message.channel.send(`Aucun personnage n'est défini pour cette session. Veuillez démarrer une nouvelle session avec des personnages valides.`);
+			return;
+		}
+
+		if (session.characters?.length > 1) {
+			logger.debug(`Session ${session.id} has multiple characters defined. Ignoring message.`);
+			
+			await message.channel.send(`Plusieurs personnages sont définis pour cette session. Pour l'instant, seule une interaction avec un personnage unique est supportée pour le moment.`);
+			return;
+		}
+
 		await markSessionGenerating(session.id, true);
 
-		const agentId = '4SCC_h5il1';
+		const agentId = session.characters[0];
 
 		await message.channel.sendTyping();
 
@@ -114,6 +145,7 @@ client.on(Events.MessageCreate, async (message) => {
 				name = match[1].trim();
 				content = match[2].trim();
 			}
+			logger.debug(`Sending message as ${name}.`);
 			if (name) {
 				formatted = `- **${name} :** ${content}`;
 			} else {
@@ -189,46 +221,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
 	if (interaction.commandName === 'ping') {
 		await interaction.reply('Pong!');
 	} else if (interaction.commandName === 'start') {
-		if (!interaction.channel) {
-			await interaction.reply({ content: 'This command can only be used in a channel!', ephemeral: true });
-			return;
-		}
-
-		if (['186208105502081025', '288041001329754112'].includes(interaction.user.id) === false) {
-			logger.debug(`User ${interaction.user.id} is not authorized to start a session.`);
-			return;
-		}
-
-		const session = await getSessionForChannel(interaction.channel.id);
-
-		if (session) {
-			await interaction.reply({ content: 'A session is already running in this channel!', ephemeral: true });
-			return;
-		}
-
-		await createSession(interaction.user.id, interaction.channel.id);
-
-		await interaction.reply('Démarrage de la session RP. Décrivez le contexte de la scène avant de commencer à intéragir.\n\n# Contexte :');
+		await startSessionCommand(interaction);
 	} else if (interaction.commandName === 'stop') {
-		if (!interaction.channel) {
-			await interaction.reply({ content: 'This command can only be used in a channel!', ephemeral: true });
-			return;
-		}
-
-		if (['186208105502081025', '288041001329754112'].includes(interaction.user.id) === false) {
-			logger.debug(`User ${interaction.user.id} is not authorized to stop a session.`);
-			return;
-		}
-
-		const session = await getSessionForChannel(interaction.channel.id);
-		if (!session) {
-			await interaction.reply({ content: 'No session is running in this channel!', ephemeral: true });
-			return;
-		}
-
-		await deleteSession(session.id);
-
-		await interaction.reply('La session RP est désormais terminée.');
+		await stopSessionCommand(interaction);
 	}
 });
 
