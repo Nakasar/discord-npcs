@@ -1,7 +1,7 @@
 import { Client, EmbedBuilder, Events, GatewayIntentBits, REST, Routes, SlashCommandBuilder } from 'discord.js';
 import config from 'config';
 import { logger } from './logger';
-import { createSession, deleteSession, getSessionForChannel, markSessionGenerating, setSessionContext, setSessionConversationId } from './db';
+import { createSession, deleteSession, getSessionForChannel, markSessionGenerating, setSessionContext, setSessionConversationId } from './db/sessions';
 
 const client = new Client({
 	intents: [
@@ -23,6 +23,13 @@ const commands = [
 			.setNameLocalization('fr', 'démarrer')
 			.setDescription('Create a new session in this channel')
 			.setDescriptionLocalization('fr', 'Crée une nouvelle session dans ce canal')
+			.addStringOption(option => option
+				.setName('agents')
+				.setNameLocalization('fr', 'agents')
+				.setDescription('List of coma-separated agent names or IDs')
+				.setDescriptionLocalization('fr', 'Liste des noms ou ID d\'agents séparés par des virgules')
+				.setRequired(false)
+			)
 			.toJSON(),
 	new SlashCommandBuilder()
 			.setName('stop')
