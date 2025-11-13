@@ -145,6 +145,7 @@ client.on(Events.MessageCreate, async (message) => {
 				name = match[1].trim();
 				content = match[2].trim();
 			}
+			logger.debug(`Sending message as ${name}.`);
 			if (name) {
 				formatted = `- **${name} :** ${content}`;
 			} else {
