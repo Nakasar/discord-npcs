@@ -1,6 +1,7 @@
-import { Channel, Client, EmbedBuilder, Events, GatewayIntentBits, REST, Routes, SlashCommandBuilder, User } from 'discord.js';
+import { Client, EmbedBuilder, Events, GatewayIntentBits, REST, Routes, SlashCommandBuilder } from 'discord.js';
 import config from 'config';
 import { logger } from './logger';
+import { createSession, deleteSession, getSessionForChannel, markSessionGenerating, setSessionContext, setSessionConversationId } from './db';
 
 const client = new Client({
 	intents: [
@@ -19,13 +20,13 @@ const commands = [
 	new SlashCommandBuilder().setName('ping').setDescription('Replies with Pong!').toJSON(),
 	new SlashCommandBuilder()
 			.setName('start')
-			.setNameLocalization('fr', 'demarrer')
+			.setNameLocalization('fr', 'démarrer')
 			.setDescription('Create a new session in this channel')
 			.setDescriptionLocalization('fr', 'Crée une nouvelle session dans ce canal')
 			.toJSON(),
 	new SlashCommandBuilder()
 			.setName('stop')
-			.setNameLocalization('fr', 'arreter')
+			.setNameLocalization('fr', 'arrêter')
 			.setDescription('Stop the session in this channel')
 			.setDescriptionLocalization('fr', 'Arrête la session dans ce canal')
 			.toJSON(),
@@ -39,56 +40,6 @@ async function refreshGuildCommands(guildId: string) {
 	await rest.put(Routes.applicationGuildCommands(config.get('services.discord.applicationId'), guildId), { body: commands });
 }
 
-/*
- * Data
- */
-export type Session = {
-	id: string;
-	createdAt: Date;
-	createdBy: User['id'];
-	channelId: Channel['id'];
-	generating: boolean;
-	conversationId?: string;
-}
-const sessions: Session[] = [];
-
-async function createSession(createdBy: User['id'], channelId: Channel['id']): Promise<Session> {
-	const session: Session = {
-		id: crypto.randomUUID(),
-		createdAt: new Date(),
-		createdBy,
-		channelId,
-		generating: false,
-	};
-	sessions.push(session);
-
-	return session;
-}
-
-async function getSessionForChannel(channelId: Channel['id']): Promise<Session | undefined> {
-	return sessions.find((session) => session.channelId === channelId);
-}
-
-async function deleteSession(id: Session['id']): Promise<void> {
-	const index = sessions.findIndex((session) => session.id === id);
-	if (index !== -1) {
-		sessions.splice(index, 1);
-	}
-}
-
-async function markSessionGenerating(id: Session['id'], generating: boolean): Promise<void> {
-	const session = sessions.find((s) => s.id === id);
-	if (session) {
-		session.generating = generating;
-	}
-}
-
-async function setSessionConversationId(id: Session['id'], conversationId: string): Promise<void> {
-	const session = sessions.find((s) => s.id === id);
-	if (session) {
-		session.conversationId = conversationId;
-	}
-}
 
 
 /*
@@ -131,6 +82,16 @@ client.on(Events.MessageCreate, async (message) => {
 
 		if (session.generating) {
 			logger.debug(`Session ${session.id} is already generating a response. Ignoring message.`);
+			return;
+		}
+
+		if (!session.context) {
+			logger.debug(`Adding first message as context to session.`);
+			
+			await setSessionContext(session.id, message.content);
+
+			await message.channel.send('✅ Le contexte est initialisé pour cette session. Ouverture du RP !');
+
 			return;
 		}
 
@@ -187,6 +148,8 @@ client.on(Events.MessageCreate, async (message) => {
 
 			await markSessionGenerating(session.id, false);
 		} else {
+			const initialMessageWithContext = `[[contexte]]\n${session.context ?? 'Aucun contexte particulier.'}\n\n${formatted}`;
+
 			const response = await fetch(`${config.get('services.breign.endpoint')}/agents/${agentId}/prompts`, {
 				method: 'POST',
 				headers: {
@@ -195,7 +158,7 @@ client.on(Events.MessageCreate, async (message) => {
 				},
 				body: JSON.stringify({
 					lang: 'fr',
-					message: formatted,
+					message: initialMessageWithContext,
 				}),
 			});
 
@@ -245,7 +208,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
 		await createSession(interaction.user.id, interaction.channel.id);
 
-		await interaction.reply('Démarrage de la session. Ecrivez le contexte de votre conversation et on y va !');
+		await interaction.reply('Démarrage de la session RP. Décrivez le contexte de la scène avant de commencer à intéragir.\n\n# Contexte :');
 	} else if (interaction.commandName === 'stop') {
 		if (!interaction.channel) {
 			await interaction.reply({ content: 'This command can only be used in a channel!', ephemeral: true });
@@ -265,7 +228,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
 		await deleteSession(session.id);
 
-		await interaction.reply('Session stopped!');
+		await interaction.reply('La session RP est désormais terminée.');
 	}
 });
 
