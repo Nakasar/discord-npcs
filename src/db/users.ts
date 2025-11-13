@@ -2,6 +2,9 @@ export type User = {
     id: string;
     username: string;
     discordId: string;
+    permissions: {
+        canStartSession?: boolean;
+    };
 };
 export type Agent = {
     id: string;
@@ -14,11 +17,17 @@ const users: User[] = [
         id: 'nakasar',
         username: 'Nakasar',
         discordId: "186208105502081025",
+        permissions: {
+            canStartSession: true,
+        },
     },
     {
         id: 'azgal',
         username: 'Azgal',
         discordId: "288041001329754112",
+        permissions: {
+            canStartSession: true,
+        },
     },
 ];
 
@@ -28,6 +37,11 @@ const agents: Agent[] = [
         name: 'Irène Lothaire',
         accessibleByUsers: ['nakasar', 'azgal'],
     },
+    {
+        id: 'TxDelY5_cW',
+        name: 'Jean Monnet', 
+        accessibleByUsers: ['nakasar'],
+    }
 ];
 
 export async function getUserByDiscordId(discordId: string): Promise<User | undefined> {
